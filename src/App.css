@@ -149,6 +149,36 @@ button.ghost {
   color: rgba(232, 237, 243, 0.6);
 }
 
+.ar-overlay {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  right: 16px;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding: 0.85rem 1rem;
+  border-radius: 14px;
+  background: rgba(5, 9, 16, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(8px);
+  pointer-events: auto;
+  z-index: 3;
+}
+
+.ar-overlay .lede.small {
+  margin: 0.25rem 0 0;
+  font-size: 0.95rem;
+  color: rgba(232, 237, 243, 0.8);
+}
+
+button.mini {
+  padding: 0.5rem 0.85rem;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
 @media (max-width: 840px) {
   .topbar {
     flex-direction: column;

@@ -1,7 +1,8 @@
-import { Canvas } from '@react-three/fiber'
+import { Canvas, useThree } from '@react-three/fiber'
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { XR, createXRStore, useXRHitTest, useXREvent } from '@react-three/xr'
 import { OrbitControls, useGLTF } from '@react-three/drei'
+import { createPortal } from 'react-dom'
 import { Matrix4, Quaternion, Vector3 } from 'three'
 import './App.css'
 
@@ -9,8 +10,10 @@ const tempMatrix = new Matrix4()
 const tempPosition = new Vector3()
 const tempRotation = new Quaternion()
 const tempScale = new Vector3()
+const tempForward = new Vector3()
 
 function SurfaceReticle({ onAnchor }) {
+  const { camera } = useThree()
   const reticleRef = useRef(null)
   const latestPose = useRef(null)
   const poseStore = useRef({
@@ -43,7 +46,17 @@ function SurfaceReticle({ onAnchor }) {
         position: latestPose.current.position.clone(),
         rotation: latestPose.current.rotation.clone(),
       })
+      return
     }
+
+    // fallback: place in front of camera if no hit-test result
+    const camPos = camera.getWorldPosition(new Vector3())
+    const forward = tempForward.set(0, 0, -1).applyQuaternion(camera.quaternion)
+    const targetPos = camPos.add(forward.multiplyScalar(0.85))
+    onAnchor({
+      position: targetPos,
+      rotation: camera.quaternion.clone(),
+    })
   })
 
   return (
@@ -108,6 +121,16 @@ function App() {
   const [anchorPose, setAnchorPose] = useState(null)
   const [isStarting, setIsStarting] = useState(false)
   const [showPreview, setShowPreview] = useState(true)
+  const overlayRoot = useMemo(() => {
+    if (typeof document === 'undefined') return null
+    const el = document.createElement('div')
+    el.className = 'xr-overlay-root'
+    el.style.position = 'fixed'
+    el.style.inset = '0'
+    el.style.zIndex = '10'
+    el.style.pointerEvents = 'auto'
+    return el
+  }, [])
   const previewPose = useMemo(
     () => ({
       position: new Vector3(0, 0.35, -0.8),
@@ -124,6 +147,7 @@ function App() {
       offerSession: false,
       frameRate: 'high',
       emulate: true,
+      domOverlay: overlayRoot ?? undefined,
     }),
   )
 
@@ -146,8 +170,21 @@ function App() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!overlayRoot) return
+    if (!overlayRoot.parentElement) {
+      document.body.appendChild(overlayRoot)
+    }
+    return () => {
+      if (overlayRoot.parentElement) {
+        overlayRoot.remove()
+      }
+    }
+  }, [overlayRoot])
+
   const startAR = async () => {
     if (isStarting || isSupported === false) return
+    setAnchorPose(null)
     setIsStarting(true)
     try {
       setShowPreview(false)
@@ -164,6 +201,48 @@ function App() {
     }
   }
 
+  const overlayUI = (
+    <>
+      <div className="hud">
+        <div className="pill ready">
+          {isSupported === false
+            ? 'XR unsupported'
+            : showPreview
+              ? 'Preview mode'
+              : anchorPose
+                ? 'Anchored'
+                : 'Scanning surface'}
+        </div>
+        <div className="pill soft">
+          {showPreview
+            ? 'Press Start AR on a supported device'
+            : anchorPose
+              ? 'Walk around to see stability'
+              : 'Tap anywhere to place'}
+        </div>
+      </div>
+
+      {!showPreview && (
+        <div className="ar-overlay">
+          <div>
+            <p className="eyebrow">AR Mode</p>
+            <p className="lede small">
+              Move the device to look around. Tap once to drop the model just
+              ahead; tap again to re-place it.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="ghost mini"
+            onClick={() => setAnchorPose(null)}
+          >
+            Reset anchor
+          </button>
+        </div>
+      )}
+    </>
+  )
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -171,8 +250,8 @@ function App() {
           <p className="eyebrow">WebXR - Ground Anchoring</p>
           <h1>Tap to place, stay anchored.</h1>
           <p className="lede">
-            Move your device to detect the ground, tap where the reticle locks,
-            and the model will stay pinned as you walk around.
+            Tap once to drop the model in front of you, then walk around to keep
+            it anchored in space.
           </p>
         </div>
         <div className="cta-group">
@@ -197,22 +276,7 @@ function App() {
 
       <main className="content">
         <div className="canvas-frame">
-          <div className="hud">
-            <div className="pill ready">
-              {isSupported === false
-                ? 'XR unsupported'
-                : showPreview
-                  ? 'Preview mode'
-                  : anchorPose
-                    ? 'Anchored'
-                    : 'Scanning surface'}
-            </div>
-            <div className="pill soft">
-              {showPreview
-                ? 'Press Start AR on a supported device'
-                : 'Tap when the ring is stable'}
-            </div>
-          </div>
+          {overlayRoot ? createPortal(overlayUI, overlayRoot) : overlayUI}
 
           {isSupported === false && (
             <div className="unsupported">
