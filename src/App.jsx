@@ -80,16 +80,16 @@ function AnchoredModel({ pose, modelUrl }) {
 
     if (!modelUrl) return null;
 
-    return (
-        <group position={pose.position} quaternion={pose.rotation} scale={0.38}>
-            <group position={[0, 0.08, 0]}>
-                <primitive object={scene} />
-            </group>
-            <mesh position={[0, -0.42, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-                <ringGeometry args={[0.12, 0.16, 48]} />
-                <meshStandardMaterial
-                    color="#4ff1c7"
-                    opacity={0.6}
+      return (
+          <group position={pose.position} quaternion={pose.rotation} scale={0.38}>
+              <group position={[0, 0.08, 0]} rotation={[0, -Math.PI / 2, 0]}>
+                  <primitive object={scene} />
+              </group>
+              <mesh position={[0, -0.42, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+                  <ringGeometry args={[0.12, 0.16, 48]} />
+                  <meshStandardMaterial
+                      color="#4ff1c7"
+                      opacity={0.6}
                     transparent
                 />
             </mesh>
@@ -148,11 +148,8 @@ function App() {
     const [anchorPose, setAnchorPose] = useState(null);
     const [isStarting, setIsStarting] = useState(false);
     const [showPreview, setShowPreview] = useState(true);
-    const modelUrl = useModelUrl(
-        "/models/main-model.gltf",
-        "/models/anchor.gltf"
-    );
-    const resolvedModelUrl = modelUrl ?? "/models/anchor.gltf";
+    const modelUrl = useModelUrl("/models/main-model.glb", "/models/anchor.glb");
+    const resolvedModelUrl = modelUrl ?? "/models/anchor.glb";
     const overlayRoot = useMemo(() => {
         if (typeof document === "undefined") return null;
         const el = document.createElement("div");
