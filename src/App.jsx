@@ -4,6 +4,7 @@ import { XR, createXRStore, useXRHitTest, useXREvent } from "@react-three/xr";
 import { OrbitControls, useGLTF } from "@react-three/drei";
 import { createPortal } from "react-dom";
 import { Matrix4, Quaternion, Vector3 } from "three";
+import { useModelUrl } from "./useModelUrl";
 import "./App.css";
 
 const tempMatrix = new Matrix4();
@@ -73,8 +74,11 @@ function SurfaceReticle({ onAnchor }) {
     );
 }
 
-function AnchoredModel({ pose }) {
-    const { scene } = useGLTF("/models/anchor.gltf");
+function AnchoredModel({ pose, modelUrl }) {
+    // ensure the hook is always called in the same order; fallback to a default model URL
+    const { scene } = useGLTF(modelUrl ?? "/models/anchor.gltf");
+
+    if (!modelUrl) return null;
 
     return (
         <group position={pose.position} quaternion={pose.rotation} scale={0.38}>
@@ -93,9 +97,7 @@ function AnchoredModel({ pose }) {
     );
 }
 
-useGLTF.preload("/models/anchor.gltf");
-
-function PreviewScene({ pose }) {
+function PreviewScene({ pose, modelUrl }) {
     return (
         <>
             <color attach="background" args={["#060b12"]} />
@@ -110,7 +112,7 @@ function PreviewScene({ pose }) {
                     </mesh>
                 }
             >
-                <AnchoredModel pose={pose} />
+                <AnchoredModel pose={pose} modelUrl={modelUrl} />
             </Suspense>
             <OrbitControls
                 enablePan={false}
@@ -121,7 +123,7 @@ function PreviewScene({ pose }) {
     );
 }
 
-function ARExperience({ anchorPose, onAnchor }) {
+function ARExperience({ anchorPose, onAnchor, modelUrl }) {
     return (
         <>
             <ambientLight intensity={1.05} />
@@ -134,7 +136,9 @@ function ARExperience({ anchorPose, onAnchor }) {
             <directionalLight position={[2, 4, 1]} intensity={1.35} />
             <directionalLight position={[-3, 3, -1]} intensity={0.7} />
             {!anchorPose && <SurfaceReticle onAnchor={onAnchor} />}
-            {anchorPose && <AnchoredModel pose={anchorPose} />}
+            {anchorPose && (
+                <AnchoredModel pose={anchorPose} modelUrl={modelUrl} />
+            )}
         </>
     );
 }
@@ -144,6 +148,11 @@ function App() {
     const [anchorPose, setAnchorPose] = useState(null);
     const [isStarting, setIsStarting] = useState(false);
     const [showPreview, setShowPreview] = useState(true);
+    const modelUrl = useModelUrl(
+        "/models/main-model.gltf",
+        "/models/anchor.gltf"
+    );
+    const resolvedModelUrl = modelUrl ?? "/models/anchor.gltf";
     const overlayRoot = useMemo(() => {
         if (typeof document === "undefined") return null;
         const el = document.createElement("div");
@@ -192,6 +201,11 @@ function App() {
             isMounted = false;
         };
     }, []);
+
+    useEffect(() => {
+        if (!resolvedModelUrl) return;
+        useGLTF.preload(resolvedModelUrl);
+    }, [resolvedModelUrl]);
 
     useEffect(() => {
         if (!overlayRoot) return;
@@ -325,11 +339,15 @@ function App() {
                         <XR store={xrStore}>
                             <Suspense fallback={null}>
                                 {showPreview ? (
-                                    <PreviewScene pose={previewPose} />
+                                    <PreviewScene
+                                        pose={previewPose}
+                                        modelUrl={resolvedModelUrl}
+                                    />
                                 ) : (
                                     <ARExperience
                                         anchorPose={anchorPose}
                                         onAnchor={setAnchorPose}
+                                        modelUrl={resolvedModelUrl}
                                     />
                                 )}
                             </Suspense>
