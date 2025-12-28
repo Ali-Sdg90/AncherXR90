@@ -12,11 +12,13 @@ const tempPosition = new Vector3();
 const tempRotation = new Quaternion();
 const tempScale = new Vector3();
 const tempForward = new Vector3();
+const tempPlaceForward = new Vector3();
 
-function SurfaceReticle({ onAnchor }) {
+function SurfaceReticle({ onAnchor, showReticle }) {
     const { camera } = useThree();
     const reticleRef = useRef(null);
     const latestPose = useRef(null);
+    const lastHit = useRef(null);
     const poseStore = useRef({
         position: new Vector3(),
         rotation: new Quaternion(),
@@ -34,9 +36,13 @@ function SurfaceReticle({ onAnchor }) {
             poseStore.current.position.copy(tempPosition);
             poseStore.current.rotation.copy(tempRotation);
             latestPose.current = poseStore.current;
+            lastHit.current = {
+                position: tempPosition.clone(),
+                rotation: tempRotation.clone(),
+            };
 
             if (reticleRef.current) {
-                reticleRef.current.visible = true;
+                reticleRef.current.visible = !!showReticle;
                 reticleRef.current.position.copy(tempPosition);
                 reticleRef.current.quaternion.copy(tempRotation);
             }
@@ -46,24 +52,15 @@ function SurfaceReticle({ onAnchor }) {
     );
 
     useXREvent("select", () => {
-        if (latestPose.current) {
+        const hitPose = lastHit.current ?? latestPose.current;
+        if (hitPose) {
+            // place exactly on last hit result
             onAnchor({
-                position: latestPose.current.position.clone(),
-                rotation: latestPose.current.rotation.clone(),
+                position: hitPose.position.clone(),
+                rotation: hitPose.rotation.clone(),
             });
             return;
         }
-
-        // fallback: place in front of camera if no hit-test result
-        const camPos = camera.getWorldPosition(new Vector3());
-        const forward = tempForward
-            .set(0, 0, -1)
-            .applyQuaternion(camera.quaternion);
-        const targetPos = camPos.add(forward.multiplyScalar(0.85));
-        onAnchor({
-            position: targetPos,
-            rotation: camera.quaternion.clone(),
-        });
     });
 
     return (
@@ -80,16 +77,16 @@ function AnchoredModel({ pose, modelUrl }) {
 
     if (!modelUrl) return null;
 
-      return (
-          <group position={pose.position} quaternion={pose.rotation} scale={0.38}>
-              <group position={[0, 0.08, 0]} rotation={[0, -Math.PI / 2, 0]}>
-                  <primitive object={scene} />
-              </group>
-              <mesh position={[0, -0.42, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-                  <ringGeometry args={[0.12, 0.16, 48]} />
-                  <meshStandardMaterial
-                      color="#4ff1c7"
-                      opacity={0.6}
+    return (
+        <group position={pose.position} quaternion={pose.rotation} scale={0.38}>
+            <group position={[0, 0.08, 0]} rotation={[0, -Math.PI / 2, 0]}>
+                <primitive object={scene} />
+            </group>
+            <mesh position={[0, -0.42, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+                <ringGeometry args={[0.12, 0.16, 48]} />
+                <meshStandardMaterial
+                    color="#4ff1c7"
+                    opacity={0.6}
                     transparent
                 />
             </mesh>
@@ -123,7 +120,22 @@ function PreviewScene({ pose, modelUrl }) {
     );
 }
 
-function ARExperience({ anchorPose, onAnchor, modelUrl }) {
+function ARExperience({ anchorPose, onAnchor, modelUrl, placeInFrontTick }) {
+    const { camera } = useThree();
+
+    useEffect(() => {
+        if (!placeInFrontTick) return;
+        const camPos = camera.getWorldPosition(new Vector3());
+        const forward = tempPlaceForward
+            .set(0, 0, -1)
+            .applyQuaternion(camera.quaternion);
+        const targetPos = camPos.add(forward.multiplyScalar(0.85));
+        onAnchor({
+            position: targetPos,
+            rotation: camera.quaternion.clone(),
+        });
+    }, [placeInFrontTick, camera, onAnchor]);
+
     return (
         <>
             <ambientLight intensity={1.05} />
@@ -135,7 +147,9 @@ function ARExperience({ anchorPose, onAnchor, modelUrl }) {
             />
             <directionalLight position={[2, 4, 1]} intensity={1.35} />
             <directionalLight position={[-3, 3, -1]} intensity={0.7} />
-            {!anchorPose && <SurfaceReticle onAnchor={onAnchor} />}
+            {!anchorPose && (
+                <SurfaceReticle onAnchor={onAnchor} showReticle={!anchorPose} />
+            )}
             {anchorPose && (
                 <AnchoredModel pose={anchorPose} modelUrl={modelUrl} />
             )}
@@ -148,7 +162,11 @@ function App() {
     const [anchorPose, setAnchorPose] = useState(null);
     const [isStarting, setIsStarting] = useState(false);
     const [showPreview, setShowPreview] = useState(true);
-    const modelUrl = useModelUrl("/models/main-model.glb", "/models/anchor.glb");
+    const [placeInFrontTick, setPlaceInFrontTick] = useState(0);
+    const modelUrl = useModelUrl(
+        "/models/main-model.glb",
+        "/models/anchor.glb"
+    );
     const resolvedModelUrl = modelUrl ?? "/models/anchor.glb";
     const overlayRoot = useMemo(() => {
         if (typeof document === "undefined") return null;
@@ -235,6 +253,11 @@ function App() {
         }
     };
 
+    const placeInFront = () => {
+        if (isSupported === false || showPreview) return;
+        setPlaceInFrontTick((t) => t + 1);
+    };
+
     const overlayUI = (
         <>
             <div className="hud">
@@ -251,27 +274,65 @@ function App() {
                     {showPreview
                         ? "Press Start AR on a supported device"
                         : anchorPose
-                        ? "Walk around to see stability"
-                        : "Tap anywhere to place"}
+                        ? "Tap a surface to move the model"
+                        : "Tap a detected surface to place"}
                 </div>
             </div>
 
             {!showPreview && (
-                <div className="ar-overlay">
+                <div
+                    className="ar-overlay"
+                    onPointerDown={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                    }}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                    }}
+                >
                     <div>
                         <p className="eyebrow">AR Mode</p>
                         <p className="lede small">
-                            Move the device to look around. Tap once to drop the
-                            model just ahead; tap again to re-place it.
+                            Tap a detected surface to place or move the model.
+                            Place in front drops it at a fixed distance.
+                        </p>
+                        <p className="meta-line">
+                            Ali Sadeghi • PB • 28/12/2025 •{" "}
+                            <a
+                                href="https://github.com/Ali-Sdg90"
+                                target="_blank"
+                                rel="noreferrer"
+                            >
+                                My GitHub
+                            </a>
                         </p>
                     </div>
-                    <button
-                        type="button"
-                        className="ghost mini"
-                        onClick={() => setAnchorPose(null)}
-                    >
-                        Reset anchor
-                    </button>
+                    <div className="ar-actions">
+                        <button
+                            type="button"
+                            className="ghost mini"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                setAnchorPose(null);
+                            }}
+                        >
+                            Remove model
+                        </button>
+                        <button
+                            type="button"
+                            className="primary mini"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                placeInFront();
+                            }}
+                            disabled={showPreview}
+                        >
+                            Place in front
+                        </button>
+                    </div>
                 </div>
             )}
         </>
@@ -300,19 +361,37 @@ function App() {
                     <button
                         type="button"
                         className="ghost"
-                        onClick={() => setAnchorPose(null)}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setAnchorPose(null);
+                        }}
                         disabled={!anchorPose}
                     >
-                        Reset anchor
+                        Remove model
                     </button>
                 </div>
             </header>
 
             <main className="content">
-                <div className="canvas-frame">
+                <div className="canvas-frame compact">
                     {overlayRoot
                         ? createPortal(overlayUI, overlayRoot)
                         : overlayUI}
+                    {!showPreview && (
+                        <button
+                            className="back-btn"
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                setShowPreview(true);
+                                setAnchorPose(null);
+                            }}
+                        >
+                            ← Back
+                        </button>
+                    )}
 
                     {isSupported === false && (
                         <div className="unsupported">
@@ -345,12 +424,27 @@ function App() {
                                         anchorPose={anchorPose}
                                         onAnchor={setAnchorPose}
                                         modelUrl={resolvedModelUrl}
+                                        placeInFrontTick={placeInFrontTick}
                                     />
                                 )}
                             </Suspense>
                         </XR>
                     </Canvas>
                 </div>
+                <footer className="page-footer">
+                    <span>Built by Ali Sadeghi</span>
+                    <span>•</span>
+                    <a
+                        className="meta-link"
+                        href="https://github.com/Ali-Sdg90"
+                        target="_blank"
+                        rel="noreferrer"
+                    >
+                        My GitHub
+                    </a>
+                    <span>•</span>
+                    <span>PB • 28/12/2025</span>
+                </footer>
             </main>
         </div>
     );
